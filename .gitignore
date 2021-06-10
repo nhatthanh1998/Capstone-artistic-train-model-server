@@ -1,0 +1,6 @@
+ENV=dev
+QUEUE_HOST=amqps://vkcupcps:7aZAQs_SrFQ8_xUtIsC_phHlwl_KpuLf@baboon.rmq.cloudamqp.com/vkcupcps
+MAIN_SERVER_ENDPOINT=http://localhost:3000
+AWS_PUBLIC_KEY=AKIAYB7AFYKUNQ3Z73NL
+AWS_PRIVATE_KEY=4Ab0HaOlRludgHT9YR3QdeWFgoNVQoIJShDB0oH6
+S3_BUCKET=artisan-model-snapshots
