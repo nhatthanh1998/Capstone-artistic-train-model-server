@@ -4,9 +4,7 @@ from torchvision import models
 class Extractor(torch.nn.Module):
     def __init__(self):
         super().__init__()
-        # Keeping eval() mode only for consistency - it only affects BatchNorm and Dropout both of which we won't use
         self.model = models.vgg16(pretrained=True).features[:23]
-
         self.slice1 = nn.Sequential()
         self.slice2 = nn.Sequential()
         self.slice3 = nn.Sequential()
