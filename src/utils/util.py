@@ -1,16 +1,13 @@
-from torch.utils.data import DataLoader
-from torchvision import datasets
 from torchvision import transforms as transforms
 import torch
 from torch.nn import init
 import os
 
-
 """ Transforms for training images """
 training_transform = transforms.Compose(
     [
         transforms.ToTensor(),
-        transforms.Normalize((0.5,0.5,0.5), (0.5, 0.5, 0.5)),
+        transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
     ]
 )
 
@@ -46,12 +43,6 @@ def load_model(path, generator, optimizer):
     optimizer.load_state_dict(torch.load(path + '/optimizer.pth'))
 
 
-def create_data_loader(training_path):
-    # Create dataloader for the training data
-    train_dataset = datasets.ImageFolder(training_path, training_transform)
-    dataloader = DataLoader(train_dataset, batch_size=4)
-
-
 def init_weights(net, init_type='normal', init_gain=0.02):
     def init_func(m):
         classname = m.__class__.__name__
@@ -83,3 +74,9 @@ def init_net(net, init_type='normal', init_gain=0.02, gpu_ids=[]):
         net = torch.nn.DataParallel(net, gpu_ids)  # multi-GPUs
     init_weights(net, init_type, init_gain=init_gain)
     return net
+
+
+def mkdir(path):
+    print("mkdir.......")
+    os.makedirs("path", exist_ok=True)  # succeeds even if directory exists.
+
