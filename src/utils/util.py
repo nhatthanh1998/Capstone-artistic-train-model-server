@@ -78,5 +78,5 @@ def init_net(net, init_type='normal', init_gain=0.02, gpu_ids=[]):
 
 def mkdir(path):
     print("mkdir.......")
-    os.makedirs("path", exist_ok=True)  # succeeds even if directory exists.
+    os.makedirs(path, exist_ok=True)  # succeeds even if directory exists.
 
