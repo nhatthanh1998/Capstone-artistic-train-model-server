@@ -2,7 +2,7 @@ from torchvision import transforms as transforms
 import torch
 from torch.nn import init
 import os
-
+import json
 """ Transforms for training images """
 training_transform = transforms.Compose(
     [
@@ -79,4 +79,11 @@ def init_net(net, init_type='normal', init_gain=0.02, gpu_ids=[]):
 def mkdir(path):
     print("mkdir.......")
     os.makedirs(path, exist_ok=True)  # succeeds even if directory exists.
+
+
+def transform_byte_to_object(byte_data):
+    response = byte_data.decode('utf8')
+    response = json.loads(response)
+    return response
+
 

@@ -8,21 +8,26 @@ from PIL import Image
 import torch
 from src.configs.weight import style_layer_weight
 import sys
+import pika
 
 
 class TrainServer:
-    def __init__(self, epoch, lr, lambda_style, lambda_content, check_point_after):
+    def __init__(self, epoch, lr, lambda_style, lambda_content, queue_host, exchange_train_server_name, routing_key):
+        self.routing_key = routing_key
+        self.queue_host = queue_host
+        self.exchange_train_server_name = exchange_train_server_name
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.lr = lr
         self.lambda_style = lambda_style
         self.lambda_content = lambda_content
         self.epoch = epoch
-        self.check_point_after = check_point_after
         self.style_layer_weight = style_layer_weight
         self.generator = Generator().to(self.device)
         self.extractor = Extractor().to(self.device)
         self.optimizer = torch.optim.Adam(self.generator.parameters(), lr=self.lr)
         self.criterion = torch.nn.MSELoss().to(self.device)
+        self.connection = pika.BlockingConnection(pika.URLParameters(self.queue_host))
+        self.channel = self.connection.channel()
 
     def process_style_photo(self, path):
         style_image = Image.open(path)
@@ -41,9 +46,9 @@ class TrainServer:
         data_loader = DataLoader(train_dataset, batch_size=4)
         return data_loader, train_dataset
 
-    def start_training(self, style_photo_path):
-        output_dir = "../output/starry_night"
-        snapshot_dir = "../snapshot/starry_night"
+    def start_training(self, style_photo_path, style_name, check_point_after):
+        output_dir = f"../output/{style_name}"
+        snapshot_dir = f"../snapshot/{style_name}"
 
         # 1. Create DataLoader
         data_loader, train_dataset = self.create_data_loader("./resources/train_images")
@@ -110,5 +115,15 @@ class TrainServer:
                 if batches_done % self.check_point_after == 0 and batches_done > 1:
                     save_model(batches_done)
 
-    def process_queue(self):
+    def process_queue_message(self, ch, method, properties, body):
         pass
+
+    def start_work(self):
+        self.channel.queue_declare(self.routing_key, durable=True)
+        self.channel.exchange_declare(exchange=self.exchange_train_server_name, exchange_type='direct')
+        self.channel.queue_bind(exchange=self.exchange_train_server_name, queue=self.routing_key,
+                                routing_key=self.routing_key)
+        self.channel.basic_consume(queue=self.routing_key, on_message_callback=self.process_queue_message)
+        print(f' [*] Waiting for messages at exchange {self.exchange_train_server_name} routing Key: {self.routing_key}. To exit press CTRL+C')
+        print(
+            f' [*] Waiting for messages at exchange. To exit press CTRL+C')
