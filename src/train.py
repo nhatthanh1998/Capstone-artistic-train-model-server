@@ -3,7 +3,7 @@ from torchvision import datasets
 from torchvision.utils import save_image
 from src.models.Extractor import Extractor
 from src.models.Generator import Generator
-from src.utils.util import style_transform, training_transform, gram_matrix, save_model, mkdir
+from src.utils.util import style_transform, training_transform, gram_matrix, save_model, mkdir, transform_byte_to_object
 from PIL import Image
 import torch
 from src.configs.weight import style_layer_weight
@@ -116,7 +116,14 @@ class TrainServer:
                     save_model(batches_done)
 
     def process_queue_message(self, ch, method, properties, body):
-        pass
+        body = transform_byte_to_object(body)
+        data = body['data']
+        style_photo_path = data['stylePhotoPath']
+        style_name = data['style_name']
+        check_point_after = data['checkpointAfter']
+        self.start_training(style_photo_path=style_photo_path,
+                            style_name=style_name,
+                            check_point_after=check_point_after)
 
     def start_work(self):
         self.channel.queue_declare(self.routing_key, durable=True)
