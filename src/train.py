@@ -132,5 +132,3 @@ class TrainServer:
                                 routing_key=self.routing_key)
         self.channel.basic_consume(queue=self.routing_key, on_message_callback=self.process_queue_message)
         print(f' [*] Waiting for messages at exchange {self.exchange_train_server_name} routing Key: {self.routing_key}. To exit press CTRL+C')
-        print(
-            f' [*] Waiting for messages at exchange. To exit press CTRL+C')

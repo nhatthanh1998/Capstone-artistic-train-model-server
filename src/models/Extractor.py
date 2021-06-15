@@ -1,7 +1,8 @@
 import torch.nn as nn
 from torchvision import models 
 
-class Extractor(torch.nn.Module):
+
+class Extractor(nn.Module):
     def __init__(self):
         super().__init__()
         self.model = models.vgg16(pretrained=True).features[:23]
@@ -18,7 +19,6 @@ class Extractor(torch.nn.Module):
         for x in range(16, 23):
             self.slice4.add_module(str(x), self.model[x])
 
-            
         for param in self.parameters():
             param.requires_grad = False
 
@@ -27,7 +27,7 @@ class Extractor(torch.nn.Module):
         x = self.slice1(x)
         features['relu1_2'] = x
         x = self.slice2(x)
-        features['relu2_2']  = x
+        features['relu2_2'] = x
         x = self.slice3(x)
         features['relu3_3'] = x
         x = self.slice4(x)
