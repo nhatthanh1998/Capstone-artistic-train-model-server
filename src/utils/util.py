@@ -1,8 +1,43 @@
+import boto3
+from dotenv import load_dotenv
 from torchvision import transforms as transforms
 import torch
-from torch.nn import init
 import os
 import json
+import requests
+
+from torchvision.utils import save_image
+
+load_dotenv()
+ENV = os.environ.get("ENV", "dev")
+S3_BUCKET = 'artisan-photos'
+
+
+def init_s3_bucket(env, bucket):
+    if env == "production":
+        s3_client = boto3.client('s3')
+    else:
+        AWS_PUBLIC_KEY = os.environ.get("AWS_PUBLIC_KEY")
+        AWS_PRIVATE_KEY = os.environ.get("AWS_PRIVATE_KEY")
+        session = boto3.Session(
+            aws_access_key_id=AWS_PUBLIC_KEY,
+            aws_secret_access_key=AWS_PRIVATE_KEY
+        )
+        s3_client = session.client('s3')
+
+    region = s3_client.get_bucket_location(Bucket=bucket)['LocationConstraint']
+
+    return s3_client, region
+
+
+s3, S3_REGION = init_s3_bucket(bucket=S3_BUCKET, env=ENV)
+
+
+def save_file_to_s3(file_path, folder_name):
+    file_name = file_path[file_path.rindex('/') + 1 : ]
+    save_s3_path = f"training-result/{folder_name}/{file_name}"
+    s3.upload_file(file_path, S3_BUCKET, save_s3_path)
+    return save_s3_path
 
 
 """ Transforms for training images """
@@ -24,58 +59,32 @@ style_transform = transforms.Compose(
 )
 
 
-def gram_matrix(y):
-    """ Returns the gram matrix of y (used to compute style loss) """
-    (b, c, h, w) = y.size()
-    features = y.view(b, c, w * h)
-    features_t = features.transpose(1, 2)
-    gram = features.bmm(features_t) / (c * h * w)
-    return gram
+def gram(tensor):
+    B, C, H, W = tensor.shape
+    x = tensor.view(B, C, H*W)
+    x_t = x.transpose(1, 2)
+    return  torch.bmm(x, x_t) / (C*H*W)
 
 
-def save_model(i, snapshot_path, generator, optimizer):
-    path = snapshot_path + '/' + str(i)
-    os.mkdir(path)
-    torch.save(generator.state_dict(), path + '/generator.pth')
-    torch.save(optimizer.state_dict(), path + '/optimizer.pth')
+def save_result(i, output_dir, generator, result_tensor, request_id):
+    save_snapshot_path = f'{output_dir}/generator_{str(i)}.pth'
+    save_image_path = f'{output_dir}/result_{str(i)}.png'
+    save_image(result_tensor, save_image_path)
+    torch.save(generator.state_dict(), save_snapshot_path)
+    snapshot_s3_path = save_file_to_s3(save_snapshot_path, request_id)
+    photo_s3_path = save_file_to_s3(save_image_path, request_id)
+    return snapshot_s3_path, photo_s3_path
 
 
-def load_model(path, generator, optimizer):
-    generator.load_state_dict(torch.load(path + '/generator.pth'))
-    optimizer.load_state_dict(torch.load(path + '/optimizer.pth'))
-
-
-def init_weights(net, init_type='normal', init_gain=0.02):
-    def init_func(m):
-        classname = m.__class__.__name__
-        if hasattr(m, 'weight') and (classname.find('Conv') != -1 or classname.find('Linear') != -1):
-            if init_type == 'normal':
-                init.normal_(m.weight.data, 0.0, init_gain)
-            elif init_type == 'xavier':
-                init.xavier_normal_(m.weight.data, gain=init_gain)
-            elif init_type == 'kaiming':
-                init.kaiming_normal_(m.weight.data, a=0, mode='fan_in')
-            elif init_type == 'orthogonal':
-                init.orthogonal_(m.weight.data, gain=init_gain)
-            else:
-                raise NotImplementedError('initialization method [%s] is not implemented' % init_type)
-            if hasattr(m, 'bias') and m.bias is not None:
-                init.constant_(m.bias.data, 0.0)
-        elif classname.find('BatchNorm2d') != -1:  # BatchNorm Layer's weight is not a matrix; only normal distribution applies.
-            init.normal_(m.weight.data, 1.0, init_gain)
-            init.constant_(m.bias.data, 0.0)
-
-    print('initialize network with %s' % init_type)
-    net.apply(init_func)
-    
-
-def init_net(net, init_type='normal', init_gain=0.02, gpu_ids=[]):
-    if len(gpu_ids) > 0:
-        assert(torch.cuda.is_available())
-        net.to(gpu_ids[0])
-        net = torch.nn.DataParallel(net, gpu_ids)  # multi-GPUs
-    init_weights(net, init_type, init_gain=init_gain)
-    return net
+def request_save_training_result(request_id, step, snapshot_s3_path, photo_s3_path, server_endpoint):
+    payload = {
+        "trainingRequestId": request_id,
+        "step": step,
+        "snapshotLocation": snapshot_s3_path,
+        "resultPhotoLocation": photo_s3_path
+    }
+    print(payload)
+    requests.post(f'{server_endpoint}/training-results', payload)
 
 
 def mkdir(path):

@@ -1,91 +1,97 @@
 from torch.utils.data import DataLoader
 from torchvision import datasets
-from torchvision.utils import save_image
-from src.models.Extractor import Extractor
-from src.models.Generator import Generator
-from src.utils.util import style_transform, training_transform, gram_matrix, save_model, mkdir, transform_byte_to_object
+from src.models.extractor import VGG16
+from src.models.generator import Generator
+from src.utils.util import style_transform, training_transform, gram, mkdir, transform_byte_to_object, \
+    save_result, request_save_training_result
 from PIL import Image
 import torch
-from src.configs.weight import style_layer_weight
-import sys
 import pika
+import datetime
+import requests
 
 
 class TrainServer:
-    def __init__(self, epoch, lr, lambda_style, lambda_content, queue_host, exchange_train_server_name, routing_key):
-        self.routing_key = routing_key
-        self.queue_host = queue_host
-        self.exchange_train_server_name = exchange_train_server_name
+    def __init__(self, queue_host, main_server_endpoint):
+        self.main_server_end_point = main_server_endpoint
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.lr = lr
-        self.lambda_style = lambda_style
-        self.lambda_content = lambda_content
-        self.epoch = epoch
-        self.style_layer_weight = style_layer_weight
-        self.generator = Generator().to(self.device)
-        self.extractor = Extractor().to(self.device)
-        self.optimizer = torch.optim.Adam(self.generator.parameters(), lr=self.lr)
+
+        self.train_dataset = datasets.ImageFolder('src/resources', training_transform)
+        self.data_loader = DataLoader(self.train_dataset, batch_size=2)
+
+        self.extractor = VGG16().to(self.device)
         self.criterion = torch.nn.MSELoss().to(self.device)
-        self.connection = pika.BlockingConnection(pika.URLParameters(self.queue_host))
+
+        self.generator = None
+        self.optimizer = None
+
+        self.connection = pika.BlockingConnection(pika.URLParameters(queue_host))
         self.channel = self.connection.channel()
 
-    def process_style_photo(self, path):
-        style_image = Image.open(path)
-        style_image_ = style_transform(style_image).unsqueeze(0)
-        style_features = self.extractor(style_image_.to(self.device))
+    def init_models(self, lr):
+        self.generator = Generator().to(self.device)
+        self.optimizer = torch.optim.Adam(self.generator.parameters(), lr=lr)
 
-        style_grams = {}
+    def calculate_style_grams(self, path):
+        style_image = Image.open(requests.get(path, stream=True).raw).convert('RGB')
+        style_image = style_transform(style_image).unsqueeze(0).to(self.device)
+        B, C, H, W = style_image.shape
+        style_features = self.extractor(style_image.expand([2, C, H, W]))
+        
+        style_gram = {}
         for key, value in style_features.items():
-            style_grams[key] = gram_matrix(value)
+            style_gram[key] = gram(value)
+        return style_gram
 
-        return style_grams, style_features
+    def start_training(self, lr, style_photo_path, epochs, save_step, style_weight, content_weight, training_request_id,
+                       relu1_2_weight, relu2_2_weight, relu3_3_weight, relu4_3_weight):
+        ts = str(datetime.datetime.now().timestamp())
+        output_dir = f"../results/{ts}/outputs"
+        snapshot_dir = f"../results/{ts}/snapshots"
 
-    @staticmethod
-    def create_data_loader(path):
-        train_dataset = datasets.ImageFolder(path, training_transform)
-        data_loader = DataLoader(train_dataset, batch_size=4)
-        return data_loader, train_dataset
+        self.init_models(lr)
 
-    def start_training(self, style_photo_path, style_name, check_point_after):
-        output_dir = f"../output/{style_name}"
-        snapshot_dir = f"../snapshot/{style_name}"
-
-        # 1. Create DataLoader
-        data_loader, train_dataset = self.create_data_loader("./resources/train_images")
-
-        # 2. Process the style photo
-        style_grams, style_features = self.process_style_photo(path=style_photo_path)
+        style_grams = self.calculate_style_grams(path=style_photo_path)
 
         # 3. Create output dir and snapshot dir form the training
         mkdir(output_dir)
         mkdir(snapshot_dir)
 
-        # 4. start training
-        total_batch = (len(train_dataset) / 4) - 1
+        style_layer_weight = {
+            'relu1_2': relu1_2_weight,
+            'relu2_2': relu2_2_weight,
+            'relu3_3': relu3_3_weight,
+            'relu4_3': relu4_3_weight
+        }
 
-        for i in range(self.epoch):
-            for batch_i, (images, _) in enumerate(data_loader):
+        step = 0
+
+        for i in range(epochs):
+            for batch_i, (images, _) in enumerate(self.data_loader):
                 torch.cuda.empty_cache()
                 self.optimizer.zero_grad()
+                print(images.shape)
                 images_original = images.to(self.device)
 
                 # Generate the output image
+                print(images_original.shape)
                 generated_images = self.generator(images_original)
-
                 # Extract features
                 original_features = self.extractor(images_original)
                 generated_features = self.extractor(generated_images)
 
                 # Calculate content loss
-                content_loss = self.criterion(generated_features['relu2_2'], original_features['relu2_2']) * self.lambda_content
+                content_loss = self.criterion(generated_features['relu2_2'], original_features['relu2_2']) * content_weight
 
                 # Calculate style loss
                 style_loss = 0
+
                 for key, value in generated_features.items():
-                    generated_gram = gram_matrix(value)
+                    generated_gram = gram(value)
                     s_loss = self.criterion(generated_gram, style_grams[key])
                     style_loss += s_loss * style_layer_weight[key]
-                style_loss = style_loss * self.lambda_style
+
+                style_loss = style_loss * style_weight
 
                 # Calculate total loss
                 total_loss = style_loss + content_loss
@@ -94,41 +100,41 @@ class TrainServer:
                 total_loss.backward()
                 self.optimizer.step()
 
-                # Update batch done
-                batches_done = i * len(data_loader) + batch_i
-                if batches_done % 500 == 0:
-                    save_image(generated_images, f"{output_dir}/step_{batches_done}.jpg")
-                sys.stdout.write(
-                    "\r[Epoch %d/%d] [Step %d] [Batch %d/%d] [Total: (%.2f)] [Style Loss: (%.2f)] [Content Loss: (%.2f)]"
-                    % (
-                        i + 1,
-                        self.epoch,
-                        batches_done,
-                        batch_i,
-                        total_batch,
-                        total_loss,
-                        style_loss,
-                        content_loss
-                    )
-                )
+                # Save training result
+                if step % 30 == 0 and step > 0:
+                    snapshot_s3_path, photo_s3_path = save_result(step, output_dir=output_dir, generator=self.generator,
+                                                                  result_tensor=generated_images,
+                                                                  request_id=training_request_id)
+                    request_save_training_result(request_id=training_request_id, step=step,
+                                                 server_endpoint=self.main_server_end_point,
+                                                 snapshot_s3_path=snapshot_s3_path, photo_s3_path=photo_s3_path)
 
-                if batches_done % self.check_point_after == 0 and batches_done > 1:
-                    save_model(batches_done)
+                step = step + 1
 
     def process_queue_message(self, ch, method, properties, body):
         body = transform_byte_to_object(body)
-        data = body['data']
-        style_photo_path = data['stylePhotoPath']
-        style_name = data['style_name']
-        check_point_after = data['checkpointAfter']
-        self.start_training(style_photo_path=style_photo_path,
-                            style_name=style_name,
-                            check_point_after=check_point_after)
+        lr = body['lr']
+        training_request_id = body['id']
+        style_photo_path = body['accessURL']
+        epochs = body['epochs']
+        save_step = body['saveStep']
+        content_weight = body['contentWeight']
+        style_weight = body['styleWeight']
+        relu1_2_weight = body['relu12Weight']
+        relu2_2_weight = body['relu22Weight']
+        relu3_3_weight = body['relu33Weight']
+        relu4_3_weight = body['relu43Weight']
+
+        self.start_training(style_photo_path=style_photo_path, epochs=epochs, save_step=save_step, lr=lr,
+                            style_weight=style_weight, content_weight=content_weight,
+                            training_request_id=training_request_id, relu1_2_weight=relu1_2_weight,
+                            relu2_2_weight=relu2_2_weight, relu3_3_weight=relu3_3_weight, relu4_3_weight=relu4_3_weight)
 
     def start_work(self):
-        self.channel.queue_declare(self.routing_key, durable=True)
-        self.channel.exchange_declare(exchange=self.exchange_train_server_name, exchange_type='direct')
-        self.channel.queue_bind(exchange=self.exchange_train_server_name, queue=self.routing_key,
-                                routing_key=self.routing_key)
-        self.channel.basic_consume(queue=self.routing_key, on_message_callback=self.process_queue_message)
-        print(f' [*] Waiting for messages at exchange {self.exchange_train_server_name} routing Key: {self.routing_key}. To exit press CTRL+C')
+        self.channel.queue_declare("TRAINING_QUEUE", durable=True)
+        self.channel.exchange_declare(exchange="TRAINING_EXCHANGE", exchange_type='direct')
+        self.channel.queue_bind(exchange="TRAINING_EXCHANGE", queue="TRAINING_QUEUE", routing_key="")
+        self.channel.basic_consume(queue="TRAINING_QUEUE", on_message_callback=self.process_queue_message, auto_ack=True)
+        print(f' [*] Waiting for training request. To exit press CTRL+C')
+        self.channel.start_consuming()
+        
