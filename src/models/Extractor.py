@@ -7,8 +7,7 @@ class VGG16(nn.Module):
     def __init__(self, vgg_path="src/models/vgg16.pth"):
         super(VGG16, self).__init__()
         # Load VGG Skeleton, Pretrained Weights
-        vgg16_features = models.vgg16(pretrained=False)
-        vgg16_features.load_state_dict(torch.load(vgg_path), strict=False)
+        vgg16_features = models.vgg16(pretrained=True)
         self.features = vgg16_features.features
 
         # Turn-off Gradient History

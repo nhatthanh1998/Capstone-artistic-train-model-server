@@ -83,7 +83,6 @@ def request_save_training_result(request_id, step, snapshot_s3_path, photo_s3_pa
         "snapshotLocation": snapshot_s3_path,
         "resultPhotoLocation": photo_s3_path
     }
-    print(payload)
     requests.post(f'{server_endpoint}/training-results', payload)
 
 
