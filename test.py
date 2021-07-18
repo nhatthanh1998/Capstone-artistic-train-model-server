@@ -1,20 +1,3 @@
-import event_emitter as events
+from src.utils.util import checkIsRequestDeleted
 
-em = events.EventEmitter()
-
-def raiseStop():
-    raise StopIteration
-
-em.on('stop', raiseStop)
-
-i = 0
-while True:
-    try:
-        print("Do")
-        if i == 10:
-            print("EMIT!!!!!!!!!!!!")
-            em.emit("stop")
-        i = i + 1
-    except StopIteration:
-        print("Emit stop")
-        break;
+print(checkIsRequestDeleted('fbffcc68-58ac-43b6-9bc0-efb0e68590f8','http://localhost:3001'))

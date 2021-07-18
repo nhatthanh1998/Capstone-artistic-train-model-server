@@ -97,3 +97,11 @@ def transform_byte_to_object(byte_data):
     return response
 
 
+def check_is_request_deleted(requestId, main_server_endpoint):
+    response = requests.get(f"{main_server_endpoint}/training-requests/{requestId}")
+    data = json.loads(response.content.decode('utf-8'))
+    status = data['status']
+    if status == "WAITING":
+        return True
+    else:
+        return False

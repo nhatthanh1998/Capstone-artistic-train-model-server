@@ -3,7 +3,7 @@ from torchvision import datasets
 from src.models.extractor import VGG16
 from src.models.generator import Generator
 from src.utils.util import style_transform, training_transform, gram, mkdir, transform_byte_to_object, \
-    save_result, request_save_training_result
+    save_result, request_save_training_result, check_is_request_deleted
 import time
 from PIL import Image
 import torch
@@ -44,7 +44,6 @@ class TrainServer:
 
         @self.sio.on('stop-training')
         def on_message(data):
-            print(data)
             print("I'm receive stop-training message")
             self.is_stop = True
 
@@ -148,14 +147,15 @@ class TrainServer:
         relu3_3_weight = body['relu33Weight']
         relu4_3_weight = body['relu43Weight']
         num_of_iterations = body['numOfIterations']
-        
-        self.training_request_id = training_request_id
+        isProcess = check_is_request_deleted(training_request_id, self.main_server_end_point)
+        if isProcess == True: 
+            self.training_request_id = training_request_id
 
-        self.start_training(style_photo_path=style_photo_path, num_of_iterations=num_of_iterations, save_step=save_step, lr=lr,
+            self.start_training(style_photo_path=style_photo_path, num_of_iterations=num_of_iterations, save_step=save_step, lr=lr,
                             style_weight=style_weight, content_weight=content_weight,
                             training_request_id=training_request_id, relu1_2_weight=relu1_2_weight,
                             relu2_2_weight=relu2_2_weight, relu3_3_weight=relu3_3_weight, relu4_3_weight=relu4_3_weight)
-
+        
 
     def handle_stop_training(self, ch, method, properties, body):
         body = transform_byte_to_object(body)
