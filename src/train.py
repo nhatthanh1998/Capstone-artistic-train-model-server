@@ -3,7 +3,7 @@ from torchvision import datasets
 from src.models.extractor import VGG16
 from src.models.generator import Generator
 from src.utils.util import style_transform, training_transform, gram, mkdir, transform_byte_to_object, \
-    save_result, request_save_training_result, check_is_request_deleted
+    save_result, request_save_training_result, check_is_request_deleted, request_start_training
 import time
 from PIL import Image
 import torch
@@ -25,7 +25,7 @@ class TrainServer:
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         self.train_dataset = datasets.ImageFolder('src/resources', training_transform)
-        self.data_loader = DataLoader(self.train_dataset, batch_size=2)
+        self.data_loader = DataLoader(self.train_dataset, batch_size=1)
 
         self.extractor = VGG16().to(self.device)
         self.criterion = torch.nn.MSELoss().to(self.device)
@@ -55,7 +55,7 @@ class TrainServer:
         style_image = Image.open(requests.get(path, stream=True).raw).convert('RGB')
         style_image = style_transform(style_image).unsqueeze(0).to(self.device)
         B, C, H, W = style_image.shape
-        style_features = self.extractor(style_image.expand([2, C, H, W]))
+        style_features = self.extractor(style_image.expand([1, C, H, W]))
         
         style_gram = {}
         for key, value in style_features.items():
@@ -135,6 +135,8 @@ class TrainServer:
             step = step + 1
 
     def process_queue_message(self, ch, method, properties, body):
+        # Change is_stop to False before training
+        self.is_stop = False
         body = transform_byte_to_object(body)
         lr = body['lr']
         training_request_id = body['id']
@@ -148,7 +150,8 @@ class TrainServer:
         relu4_3_weight = body['relu43Weight']
         num_of_iterations = body['numOfIterations']
         isProcess = check_is_request_deleted(training_request_id, self.main_server_end_point)
-        if isProcess == True: 
+        if isProcess == True:
+            request_start_training(training_request_id, self.main_server_end_point)
             self.training_request_id = training_request_id
 
             self.start_training(style_photo_path=style_photo_path, num_of_iterations=num_of_iterations, save_step=save_step, lr=lr,
