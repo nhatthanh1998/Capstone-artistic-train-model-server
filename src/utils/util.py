@@ -52,9 +52,10 @@ training_transform = transforms.Compose(
 """ Transforms for training images """
 style_transform = transforms.Compose(
     [
-        transforms.Resize((256, 256)),
-        transforms.ToTensor(),
-        transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+            transforms.Resize(256),
+            transforms.CenterCrop(256),
+            transforms.ToTensor(),
+            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
     ]
 )
 

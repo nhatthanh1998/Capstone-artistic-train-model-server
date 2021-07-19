@@ -1,2 +1,4 @@
 .env
 .idea
+vgg16.pth
+src/resources
