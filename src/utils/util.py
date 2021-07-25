@@ -34,8 +34,8 @@ s3, S3_REGION = init_s3_bucket(bucket=S3_BUCKET, env=ENV)
 
 
 def save_file_to_s3(file_path, folder_name):
-    file_name = file_path[file_path.rindex('/') + 1 : ]
-    save_s3_path = f"training-result/{folder_name}/{file_name}"
+    file_name = file_path[file_path.rindex('/') + 1:]
+    save_s3_path = f"trainings/training-result/{folder_name}/{file_name}"
     s3.upload_file(file_path, S3_BUCKET, save_s3_path)
     return save_s3_path
 
@@ -48,23 +48,22 @@ training_transform = transforms.Compose(
     ]
 )
 
-
 """ Transforms for training images """
 style_transform = transforms.Compose(
     [
-            transforms.Resize(256),
-            transforms.CenterCrop(256),
-            transforms.ToTensor(),
-            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+        transforms.Resize(256),
+        transforms.CenterCrop(256),
+        transforms.ToTensor(),
+        transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
     ]
 )
 
 
 def gram(tensor):
     B, C, H, W = tensor.shape
-    x = tensor.view(B, C, H*W)
+    x = tensor.view(B, C, H * W)
     x_t = x.transpose(1, 2)
-    return  torch.bmm(x, x_t) / (C*H*W)
+    return torch.bmm(x, x_t) / (C * H * W)
 
 
 def save_result(i, output_dir, generator, result_tensor, request_id):
@@ -88,7 +87,6 @@ def request_save_training_result(request_id, step, snapshot_s3_path, photo_s3_pa
 
 
 def mkdir(path):
-    print("mkdir.......")
     os.makedirs(path, exist_ok=True)  # succeeds even if directory exists.
 
 
@@ -98,15 +96,19 @@ def transform_byte_to_object(byte_data):
     return response
 
 
-def check_is_request_deleted(requestId, main_server_endpoint):
-    response = requests.get(f"{main_server_endpoint}/training-requests/{requestId}")
+def check_is_request_deleted(request_id, main_server_endpoint):
+    response = requests.get(f"{main_server_endpoint}/training-requests/{request_id}")
     data = json.loads(response.content.decode('utf-8'))
-    print("Data:", data)
     status = data['status']
     if status == "WAITING":
         return True
     else:
         return False
 
-def request_start_training(requestId, main_server_endpoint):
-    response = requests.get(f"{main_server_endpoint}/training-requests/{requestId}/start")
+
+def request_start_training(request_id, main_server_endpoint):
+    requests.get(f"{main_server_endpoint}/training-requests/{request_id}/start")
+
+
+def request_completed_training(request_id, main_server_endpoint):
+    requests.get(f"{main_server_endpoint}/training-requests/{request_id}/completed")

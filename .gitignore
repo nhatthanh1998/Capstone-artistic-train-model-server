@@ -2,3 +2,4 @@
 .idea
 vgg16.pth
 src/resources
+results
